@@ -1,4 +1,4 @@
-const CHY_ADMIN_APP_VERSION = "0.45.0.9-dev";
+const CHY_ADMIN_APP_VERSION = "0.45.0.10-dev";
 
 self.addEventListener("install", () => {
   self.skipWaiting();
