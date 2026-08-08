@@ -10,28 +10,12 @@ async function registerAdminAppWorker(){
       { scope:'/CHYPluginReleases/admin/', updateViaCache:'none' }
     );
 
-    try{ await reg.update(); }catch(e){}
+    // Ask browser to check the worker script, but do not block login/UI on it.
+    reg.update().catch(()=>{});
 
     if(reg.waiting){
       reg.waiting.postMessage({type:'SKIP_WAITING'});
     }
-
-    reg.addEventListener('updatefound',()=>{
-      const w=reg.installing;
-      if(!w)return;
-      w.addEventListener('statechange',()=>{
-        if(w.state==='installed' && navigator.serviceWorker.controller && reg.waiting){
-          reg.waiting.postMessage({type:'SKIP_WAITING'});
-        }
-      });
-    });
-
-    navigator.serviceWorker.addEventListener('controllerchange',()=>{
-      if(chyAdminReloading)return;
-      chyAdminReloading=true;
-      location.reload();
-    });
-
     return reg;
   }catch(e){
     console.warn('CHY Admin app worker registration failed',e);
@@ -46,23 +30,17 @@ async function checkAdminAppUpdate(showMessage=false){
       {cache:'no-store'}
     );
     if(!res.ok) return false;
+
     const info=await res.json();
     const remote=String(info.version||'').trim();
     if(!remote || remote===CHY_ADMIN_LOCAL_VERSION) return false;
 
-    if(showMessage){
-      msg('새 관리자앱 버전 '+remote+' 적용 중...');
-    }
+    if(showMessage) msg('새 관리자앱 버전 '+remote+' 적용 중...');
 
-    const reg=await navigator.serviceWorker.getRegistration('/CHYPluginReleases/admin/');
-    if(reg){
-      try{await reg.update();}catch(e){}
-      if(reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
-    }
-
-    // Avoid using any stale script/index response on the reload.
+    // Bust index/script cache without deleting the installed PWA or OneSignal subscription.
     const u=new URL(location.href);
     u.searchParams.set('_v',remote);
+    u.searchParams.set('_t',Date.now());
     location.replace(u.toString());
     return true;
   }catch(e){
@@ -83,10 +61,25 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&
 
 async function api(action, params={}) {
   const body = new URLSearchParams({action, ...params});
-  const res = await fetch(CFG.appsScriptUrl, {method:'POST', body, redirect:'follow'});
-  const text = await res.text();
-  try { return JSON.parse(text); }
-  catch(e) { throw new Error('서버 응답을 읽을 수 없습니다: ' + text.slice(0,160)); }
+  const ctrl = new AbortController();
+  const timer = setTimeout(()=>ctrl.abort(),15000);
+  try{
+    const res = await fetch(CFG.appsScriptUrl, {
+      method:'POST',
+      body,
+      redirect:'follow',
+      cache:'no-store',
+      signal:ctrl.signal
+    });
+    const text = await res.text();
+    try { return JSON.parse(text); }
+    catch(e) { throw new Error('서버 응답을 읽을 수 없습니다: ' + text.slice(0,160)); }
+  }catch(e){
+    if(e && e.name==='AbortError') throw new Error('서버 응답이 지연되어 로그인 요청을 중단했습니다.');
+    throw e;
+  }finally{
+    clearTimeout(timer);
+  }
 }
 function busy(v){ document.body.classList.toggle('busy', !!v); }
 function msg(text, ok=true){ const m=$('msg'); m.textContent=text; m.className='msg '+(ok?'ok':'err'); setTimeout(()=>m.className='msg',3000); }
@@ -436,9 +429,9 @@ async function savePermissions(){
 }
 
 window.addEventListener('load',async()=>{
-  await registerAdminAppWorker();
-  const moved=await checkAdminAppUpdate(false);
-  if(moved)return;
+  // Update machinery is deliberately non-blocking.
+  registerAdminAppWorker();
+  checkAdminAppUpdate(false);
   const remembered = localStorage.getItem('chyAdminRemember')==='1';
   $('rememberLogin').checked=remembered;
   $('id').value=remembered ? (localStorage.getItem('chyAdminId')||'') : '';
