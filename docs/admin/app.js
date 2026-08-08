@@ -1,5 +1,4 @@
 
-const CHY_ADMIN_LOCAL_VERSION = (CFG && CFG.appVersion) ? CFG.appVersion : "unknown";
 let chyAdminReloading = false;
 
 async function registerAdminAppWorker(){
@@ -50,7 +49,16 @@ async function checkAdminAppUpdate(showMessage=false){
 }
 
 
+
+window.addEventListener('error', function(e){
+  console.error('CHY Admin JS error:', e.error || e.message);
+});
+window.addEventListener('unhandledrejection', function(e){
+  console.error('CHY Admin Promise error:', e.reason);
+});
+
 const CFG = window.CHY_ADMIN_CONFIG;
+const CHY_ADMIN_LOCAL_VERSION = (CFG && CFG.appVersion) ? CFG.appVersion : "unknown";
 let token = localStorage.getItem('chyAdminToken') || sessionStorage.getItem('chyAdminToken') || '';
 let currentTab = 'pending';
 let users = [];
