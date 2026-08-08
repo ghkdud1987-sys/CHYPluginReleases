@@ -32,6 +32,7 @@ async function initOneSignal(){
       try{
         await OneSignal.init({
           appId: CFG.oneSignalAppId,
+          safari_web_id: CFG.oneSignalSafariWebId,
           serviceWorkerPath: "CHYPluginReleases/admin/push/onesignal/OneSignalSDKWorker.js",
           serviceWorkerParam: { scope: "/CHYPluginReleases/admin/push/onesignal/" },
           notifyButton: { enable:false },
@@ -69,10 +70,29 @@ async function initOneSignal(){
   });
 }
 
+
+async function repairOneSignalWorker(){
+  if(!('serviceWorker' in navigator)){
+    alert('Service Worker를 지원하지 않는 환경입니다.');
+    return;
+  }
+  try{
+    const reg = await navigator.serviceWorker.register(
+      '/CHYPluginReleases/admin/push/onesignal/OneSignalSDKWorker.js',
+      {scope:'/CHYPluginReleases/admin/push/onesignal/'}
+    );
+    await navigator.serviceWorker.ready.catch(()=>{});
+    alert('Service Worker 등록 요청 완료\nscope: '+reg.scope+'\n앱을 완전히 종료 후 다시 실행한 뒤 알림 허용을 눌러주세요.');
+  }catch(e){
+    alert('Service Worker 등록 실패: '+(e&&e.message?e.message:String(e)));
+  }
+}
+
 async function showPushStatus(){
   const lines=[];
   lines.push('현재 URL: '+location.href);
   lines.push('알림 권한: '+(Notification.permission||'-'));
+  lines.push('Safari Web ID: '+(CFG.oneSignalSafariWebId?'설정됨':'없음'));
 
   if(!window.CHYOneSignalReady || !window.CHYOneSignal){
     lines.push('OneSignal 초기화: 실패/미완료');
