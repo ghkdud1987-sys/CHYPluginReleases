@@ -20,45 +20,139 @@ function msg(text, ok=true){ const m=$('msg'); m.textContent=text; m.className='
 function authExpired(){ localStorage.removeItem('chyAdminToken'); sessionStorage.removeItem('chyAdminToken'); token=''; $('app').hidden=true; $('loginBox').hidden=false; msg('로그인 세션이 만료되었습니다.',false); }
 
 async function initOneSignal(){
-  if(!CFG.oneSignalAppId || CFG.oneSignalAppId.includes('PASTE_')) return;
-  window.OneSignalDeferred = window.OneSignalDeferred || [];
-  OneSignalDeferred.push(async function(OneSignal){
-    await OneSignal.init({
-      appId: CFG.oneSignalAppId,
-      serviceWorkerPath: "OneSignalSDKWorker.js",
-      serviceWorkerParam: { scope: "./" },
-      notifyButton: { enable:false },
-      welcomeNotification: { disable:true }
-    });
-    window.CHYOneSignal = OneSignal;
-    if(token){
-      const id=localStorage.getItem('chyAdminId');
-      if(id) await OneSignal.login(id);
-    }
+  if(!CFG.oneSignalAppId || CFG.oneSignalAppId.includes('PASTE_')){
+    window.CHYOneSignalReady=false;
     updatePushButton();
+    return false;
+  }
+
+  window.OneSignalDeferred = window.OneSignalDeferred || [];
+  return new Promise((resolve)=>{
+    OneSignalDeferred.push(async function(OneSignal){
+      try{
+        await OneSignal.init({
+          appId: CFG.oneSignalAppId,
+          serviceWorkerPath: "/CHYPluginReleases/admin/OneSignalSDKWorker.js",
+          serviceWorkerParam: { scope: "/CHYPluginReleases/admin/" },
+          notifyButton: { enable:false },
+          welcomeNotification: { disable:true },
+          autoResubscribe: true
+        });
+
+        window.CHYOneSignal=OneSignal;
+        window.CHYOneSignalReady=true;
+
+        const id=localStorage.getItem('chyAdminId');
+        if(token && id){
+          await OneSignal.login(id);
+        }
+
+        try{
+          OneSignal.User.PushSubscription.addEventListener('change', function(){
+            updatePushButton();
+          });
+        }catch(e){}
+
+        updatePushButton();
+        resolve(true);
+      }catch(e){
+        console.error("OneSignal init failed",e);
+        window.CHYOneSignalReady=false;
+        updatePushButton();
+        resolve(false);
+      }
+    });
   });
 }
-async function enablePush(){
-  if(!window.matchMedia('(display-mode: standalone)').matches && !navigator.standalone){
-    alert('아이폰에서는 먼저 이 페이지를 홈 화면에 추가한 뒤, 홈 화면의 CHY 관리자 아이콘으로 실행해주세요.');
+
+async function showPushStatus(){
+  if(!window.CHYOneSignalReady || !window.CHYOneSignal){
+    alert('OneSignal 초기화 안 됨');
     return;
   }
-  if(!window.CHYOneSignal){ alert('OneSignal 설정이 아직 완료되지 않았습니다.'); return; }
+  const O=window.CHYOneSignal;
+  alert(
+    '알림 권한: '+(O.Notifications.permission?'허용':'미허용')+
+    '\nOneSignal 구독: '+(O.User.PushSubscription.optedIn?'Subscribed':'Unsubscribed')+
+    '\nSubscription ID: '+(O.User.PushSubscription.id||'-')+
+    '\nPush Token: '+(O.User.PushSubscription.token?'생성됨':'없음')
+  );
+}
+
+async function enablePush(){
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  if(!standalone){
+    alert('아이폰에서는 Safari 공유 → 홈 화면에 추가 후, 홈 화면의 CHY 관리자 아이콘으로 실행해주세요.');
+    return;
+  }
+
+  if(!window.CHYOneSignalReady || !window.CHYOneSignal){
+    const ok = await initOneSignal();
+    if(!ok || !window.CHYOneSignal){
+      alert('OneSignal 초기화에 실패했습니다. 관리자앱을 완전히 종료한 뒤 다시 실행해주세요.');
+      return;
+    }
+  }
+
   try{
-    await window.CHYOneSignal.Notifications.requestPermission();
-    await window.CHYOneSignal.User.PushSubscription.optIn();
+    const OneSignal=window.CHYOneSignal;
+
+    if(!OneSignal.Notifications.isPushSupported()){
+      alert('현재 실행 환경에서는 Web Push를 지원하지 않습니다.');
+      return;
+    }
+
     const id=localStorage.getItem('chyAdminId');
-    if(id) await window.CHYOneSignal.login(id);
+    if(id) await OneSignal.login(id);
+
+    if(!OneSignal.Notifications.permission){
+      await OneSignal.Notifications.requestPermission();
+    }
+
+    if(!OneSignal.Notifications.permission){
+      alert('iPhone 알림 권한이 허용되지 않았습니다. 설정 > 알림 > CHY 관리자에서 알림을 허용해주세요.');
+      updatePushButton();
+      return;
+    }
+
+    await OneSignal.User.PushSubscription.optIn();
+
+    // Give iOS/OneSignal a moment to finish creating the web-push token.
+    for(let i=0;i<20;i++){
+      if(OneSignal.User.PushSubscription.optedIn && OneSignal.User.PushSubscription.id){
+        break;
+      }
+      await new Promise(r=>setTimeout(r,500));
+    }
+
+    const subscribed = !!OneSignal.User.PushSubscription.optedIn;
+    const subId = OneSignal.User.PushSubscription.id || '';
+
     updatePushButton();
-    msg('푸시 알림이 활성화되었습니다.');
-  }catch(e){ msg('알림 설정 실패: '+e.message,false); }
+
+    if(subscribed && subId){
+      msg('푸시 알림 구독이 완료되었습니다.');
+    }else{
+      alert('iPhone 알림 권한은 허용됐지만 OneSignal 푸시 구독이 아직 완료되지 않았습니다. 앱을 완전히 종료 후 다시 열어 알림 버튼을 한 번 더 눌러주세요.');
+    }
+  }catch(e){
+    console.error("Push opt-in failed",e);
+    msg('푸시 구독 실패: '+(e&&e.message?e.message:String(e)),false);
+  }
 }
 function updatePushButton(){
-  const b=$('pushBtn'); if(!b) return;
-  if(!window.CHYOneSignal){ b.textContent='푸시 설정 필요'; return; }
-  const granted = Notification.permission === 'granted';
-  b.textContent = granted ? '알림 사용중' : '알림 허용';
-  b.disabled = granted;
+  const labels=[$('pushBtn'),$('pushBtn2')].filter(Boolean);
+  if(!window.CHYOneSignalReady || !window.CHYOneSignal){
+    labels.forEach(b=>{b.textContent='알림 설정';b.disabled=false});
+    return;
+  }
+
+  const subscribed = !!window.CHYOneSignal.User.PushSubscription.optedIn;
+  const subId = window.CHYOneSignal.User.PushSubscription.id || '';
+  labels.forEach(b=>{
+    b.textContent = subscribed && subId ? '알림 사용중' : '알림 허용';
+    b.disabled = subscribed && !!subId;
+  });
 }
 
 async function login(){
@@ -229,7 +323,6 @@ window.addEventListener('load',async()=>{
   $('id').value=remembered ? (localStorage.getItem('chyAdminId')||'') : '';
 
   await initOneSignal();
-  if('serviceWorker' in navigator) navigator.serviceWorker.register('./OneSignalSDKWorker.js').catch(()=>{});
 
   if(token){
     $('adminName').textContent=localStorage.getItem('chyAdminName')||localStorage.getItem('chyAdminId')||'관리자';
