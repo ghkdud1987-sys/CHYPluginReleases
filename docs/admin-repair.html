@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CHY 관리자 복구</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f4f6fa;margin:0;padding:22px;color:#172033}
+.card{max-width:620px;margin:30px auto;background:white;border-radius:18px;padding:20px;box-shadow:0 4px 18px rgba(20,35,70,.08)}
+button{width:100%;border:0;border-radius:12px;padding:14px;background:#2267e8;color:#fff;font-size:16px;font-weight:700}
+pre{white-space:pre-wrap;background:#f5f7fb;padding:12px;border-radius:10px;font-size:12px}
+</style>
+</head>
+<body>
+<div class="card">
+<h2>CHY 관리자앱 복구</h2>
+<p>관리자앱 로그인 버튼이 무반응일 때, 과거 실험용 Service Worker와 캐시를 제거하고 정상 앱으로 다시 연결합니다.</p>
+<button onclick="repair()">복구 실행</button>
+<pre id="log">대기 중...</pre>
+</div>
+<script>
+async function repair(){
+ const log=document.getElementById('log');
+ const lines=[];
+ try{
+  if('serviceWorker' in navigator){
+   const regs=await navigator.serviceWorker.getRegistrations();
+   for(const reg of regs){
+    const sw=reg.active||reg.waiting||reg.installing;
+    const url=sw&&sw.scriptURL?sw.scriptURL:'';
+    if(url.includes('/CHYPluginReleases/admin/AdminAppWorker.js')){
+      const ok=await reg.unregister();
+      lines.push('AdminAppWorker 해제: '+ok);
+    } else if(url.includes('/CHYPluginReleases/admin/push/onesignal/OneSignalSDKWorker.js')){
+      lines.push('OneSignal Worker 유지');
+    }
+   }
+  }
+  if('caches' in window){
+    const keys=await caches.keys();
+    for(const k of keys){
+      if(k.startsWith('chy-admin-shell-')){
+        await caches.delete(k);
+        lines.push('구버전 앱 캐시 삭제: '+k);
+      }
+    }
+  }
+  lines.push('복구 완료');
+  lines.push('1초 후 관리자앱으로 이동합니다.');
+  log.textContent=lines.join('\n');
+  setTimeout(()=>location.replace('/CHYPluginReleases/admin/?repair=0.45.0.12-dev&t='+Date.now()),1000);
+ }catch(e){
+  lines.push('복구 오류: '+(e&&e.message?e.message:String(e)));
+  log.textContent=lines.join('\n');
+ }
+}
+</script>
+</body>
+</html>
