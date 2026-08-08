@@ -1,64 +1,25 @@
 
-let chyAdminReloading = false;
-
-async function registerAdminAppWorker(){
-  if(!('serviceWorker' in navigator)) return null;
-  try{
-    const reg = await navigator.serviceWorker.register(
-      '/CHYPluginReleases/admin/AdminAppWorker.js',
-      { scope:'/CHYPluginReleases/admin/', updateViaCache:'none' }
-    );
-
-    // Ask browser to check the worker script, but do not block login/UI on it.
-    reg.update().catch(()=>{});
-
-    if(reg.waiting){
-      reg.waiting.postMessage({type:'SKIP_WAITING'});
-    }
-    return reg;
-  }catch(e){
-    console.warn('CHY Admin app worker registration failed',e);
-    return null;
-  }
-}
-
-async function checkAdminAppUpdate(showMessage=false){
-  try{
-    const res=await fetch(
-      '/CHYPluginReleases/admin/admin-version.json?_='+Date.now(),
-      {cache:'no-store'}
-    );
-    if(!res.ok) return false;
-
-    const info=await res.json();
-    const remote=String(info.version||'').trim();
-    if(!remote || remote===CHY_ADMIN_LOCAL_VERSION) return false;
-
-    if(showMessage) msg('새 관리자앱 버전 '+remote+' 적용 중...');
-
-    // Bust index/script cache without deleting the installed PWA or OneSignal subscription.
-    const u=new URL(location.href);
-    u.searchParams.set('_v',remote);
-    u.searchParams.set('_t',Date.now());
-    location.replace(u.toString());
-    return true;
-  }catch(e){
-    console.warn('Admin app update check failed',e);
-    return false;
-  }
-}
-
-
-
-window.addEventListener('error', function(e){
-  console.error('CHY Admin JS error:', e.error || e.message);
-});
-window.addEventListener('unhandledrejection', function(e){
-  console.error('CHY Admin Promise error:', e.reason);
-});
-
 const CFG = window.CHY_ADMIN_CONFIG;
-const CHY_ADMIN_LOCAL_VERSION = (CFG && CFG.appVersion) ? CFG.appVersion : "unknown";
+const CHY_ADMIN_LOCAL_VERSION = CFG.appVersion || "unknown";
+window.CHY_ADMIN_JS_READY = true;
+
+async function checkAdminVersionLight(){
+  try{
+    const r = await fetch('/CHYPluginReleases/admin/admin-version.json?_='+Date.now(), {cache:'no-store'});
+    if(!r.ok) return;
+    const x = await r.json();
+    const remote = String(x.version||'');
+    if(remote && remote !== CHY_ADMIN_LOCAL_VERSION){
+      const u = new URL(location.href);
+      u.searchParams.set('_v', remote);
+      u.searchParams.set('_t', Date.now());
+      location.replace(u.toString());
+    }
+  }catch(e){
+    console.warn('CHY version check skipped', e);
+  }
+}
+
 let token = localStorage.getItem('chyAdminToken') || sessionStorage.getItem('chyAdminToken') || '';
 let currentTab = 'pending';
 let users = [];
@@ -83,7 +44,7 @@ async function api(action, params={}) {
     try { return JSON.parse(text); }
     catch(e) { throw new Error('서버 응답을 읽을 수 없습니다: ' + text.slice(0,160)); }
   }catch(e){
-    if(e && e.name==='AbortError') throw new Error('서버 응답이 지연되어 로그인 요청을 중단했습니다.');
+    if(e && e.name==='AbortError') throw new Error('서버 응답이 지연되어 요청을 중단했습니다.');
     throw e;
   }finally{
     clearTimeout(timer);
@@ -164,7 +125,6 @@ async function repairOneSignalWorker(){
 
 async function showPushStatus(){
   const lines=[];
-  lines.push('앱 버전: '+CHY_ADMIN_LOCAL_VERSION);
   lines.push('현재 URL: '+location.href);
   lines.push('알림 권한: '+(Notification.permission||'-'));
   lines.push('Safari Web ID: '+(CFG.oneSignalSafariWebId?'설정됨':'없음'));
@@ -437,9 +397,7 @@ async function savePermissions(){
 }
 
 window.addEventListener('load',async()=>{
-  // Update machinery is deliberately non-blocking.
-  registerAdminAppWorker();
-  checkAdminAppUpdate(false);
+  setTimeout(()=>checkAdminVersionLight(),1500);
   const remembered = localStorage.getItem('chyAdminRemember')==='1';
   $('rememberLogin').checked=remembered;
   $('id').value=remembered ? (localStorage.getItem('chyAdminId')||'') : '';
@@ -453,7 +411,5 @@ window.addEventListener('load',async()=>{
 });
 setInterval(()=>{if(token&&currentTab==='online')loadOnline();},30000);
 
-setInterval(()=>{ if(!document.hidden) checkAdminAppUpdate(false); },300000);
-document.addEventListener('visibilitychange',()=>{
-  if(!document.hidden) checkAdminAppUpdate(false);
-});
+setInterval(()=>{ if(!document.hidden) checkAdminVersionLight(); },300000);
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden) checkAdminVersionLight(); });
