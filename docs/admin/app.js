@@ -1,4 +1,77 @@
 
+const CHY_ADMIN_LOCAL_VERSION = (CFG && CFG.appVersion) ? CFG.appVersion : "unknown";
+let chyAdminReloading = false;
+
+async function registerAdminAppWorker(){
+  if(!('serviceWorker' in navigator)) return null;
+  try{
+    const reg = await navigator.serviceWorker.register(
+      '/CHYPluginReleases/admin/AdminAppWorker.js',
+      { scope:'/CHYPluginReleases/admin/', updateViaCache:'none' }
+    );
+
+    try{ await reg.update(); }catch(e){}
+
+    if(reg.waiting){
+      reg.waiting.postMessage({type:'SKIP_WAITING'});
+    }
+
+    reg.addEventListener('updatefound',()=>{
+      const w=reg.installing;
+      if(!w)return;
+      w.addEventListener('statechange',()=>{
+        if(w.state==='installed' && navigator.serviceWorker.controller && reg.waiting){
+          reg.waiting.postMessage({type:'SKIP_WAITING'});
+        }
+      });
+    });
+
+    navigator.serviceWorker.addEventListener('controllerchange',()=>{
+      if(chyAdminReloading)return;
+      chyAdminReloading=true;
+      location.reload();
+    });
+
+    return reg;
+  }catch(e){
+    console.warn('CHY Admin app worker registration failed',e);
+    return null;
+  }
+}
+
+async function checkAdminAppUpdate(showMessage=false){
+  try{
+    const res=await fetch(
+      '/CHYPluginReleases/admin/admin-version.json?_='+Date.now(),
+      {cache:'no-store'}
+    );
+    if(!res.ok) return false;
+    const info=await res.json();
+    const remote=String(info.version||'').trim();
+    if(!remote || remote===CHY_ADMIN_LOCAL_VERSION) return false;
+
+    if(showMessage){
+      msg('새 관리자앱 버전 '+remote+' 적용 중...');
+    }
+
+    const reg=await navigator.serviceWorker.getRegistration('/CHYPluginReleases/admin/');
+    if(reg){
+      try{await reg.update();}catch(e){}
+      if(reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
+    }
+
+    // Avoid using any stale script/index response on the reload.
+    const u=new URL(location.href);
+    u.searchParams.set('_v',remote);
+    location.replace(u.toString());
+    return true;
+  }catch(e){
+    console.warn('Admin app update check failed',e);
+    return false;
+  }
+}
+
+
 const CFG = window.CHY_ADMIN_CONFIG;
 let token = localStorage.getItem('chyAdminToken') || sessionStorage.getItem('chyAdminToken') || '';
 let currentTab = 'pending';
@@ -90,6 +163,7 @@ async function repairOneSignalWorker(){
 
 async function showPushStatus(){
   const lines=[];
+  lines.push('앱 버전: '+CHY_ADMIN_LOCAL_VERSION);
   lines.push('현재 URL: '+location.href);
   lines.push('알림 권한: '+(Notification.permission||'-'));
   lines.push('Safari Web ID: '+(CFG.oneSignalSafariWebId?'설정됨':'없음'));
@@ -362,6 +436,9 @@ async function savePermissions(){
 }
 
 window.addEventListener('load',async()=>{
+  await registerAdminAppWorker();
+  const moved=await checkAdminAppUpdate(false);
+  if(moved)return;
   const remembered = localStorage.getItem('chyAdminRemember')==='1';
   $('rememberLogin').checked=remembered;
   $('id').value=remembered ? (localStorage.getItem('chyAdminId')||'') : '';
@@ -374,3 +451,8 @@ window.addEventListener('load',async()=>{
   }
 });
 setInterval(()=>{if(token&&currentTab==='online')loadOnline();},30000);
+
+setInterval(()=>{ if(!document.hidden) checkAdminAppUpdate(false); },300000);
+document.addEventListener('visibilitychange',()=>{
+  if(!document.hidden) checkAdminAppUpdate(false);
+});
