@@ -1,6 +1,6 @@
 
 const CFG = window.CHY_ADMIN_CONFIG;
-let token = localStorage.getItem('chyAdminToken') || '';
+let token = localStorage.getItem('chyAdminToken') || sessionStorage.getItem('chyAdminToken') || '';
 let currentTab = 'pending';
 let users = [];
 let currentPermUser = '';
@@ -17,7 +17,7 @@ async function api(action, params={}) {
 }
 function busy(v){ document.body.classList.toggle('busy', !!v); }
 function msg(text, ok=true){ const m=$('msg'); m.textContent=text; m.className='msg '+(ok?'ok':'err'); setTimeout(()=>m.className='msg',3000); }
-function authExpired(){ localStorage.removeItem('chyAdminToken'); token=''; $('app').hidden=true; $('loginBox').hidden=false; msg('로그인 세션이 만료되었습니다.',false); }
+function authExpired(){ localStorage.removeItem('chyAdminToken'); sessionStorage.removeItem('chyAdminToken'); token=''; $('app').hidden=true; $('loginBox').hidden=false; msg('로그인 세션이 만료되었습니다.',false); }
 
 async function initOneSignal(){
   if(!CFG.oneSignalAppId || CFG.oneSignalAppId.includes('PASTE_')) return;
@@ -63,16 +63,30 @@ function updatePushButton(){
 
 async function login(){
   const id=$('id').value.trim(), pw=$('pw').value;
+  const remember=!!$('rememberLogin')?.checked;
   if(!id||!pw){ alert('아이디와 비밀번호를 입력해주세요.'); return; }
   busy(true);
   try{
     const r=await api('mobileApiLogin',{id,password:pw});
-    $('pw').value='';
     if(!r.ok){ alert(r.message||'로그인 실패'); return; }
+
     token=r.token;
-    localStorage.setItem('chyAdminToken',token);
-    localStorage.setItem('chyAdminId',r.id);
     localStorage.setItem('chyAdminName',r.name||r.id);
+
+    if(remember){
+      localStorage.setItem('chyAdminToken',token);
+      localStorage.setItem('chyAdminId',r.id);
+      localStorage.setItem('chyAdminRemember','1');
+      sessionStorage.removeItem('chyAdminToken');
+    }else{
+      sessionStorage.setItem('chyAdminToken',token);
+      localStorage.removeItem('chyAdminToken');
+      localStorage.removeItem('chyAdminId');
+      localStorage.removeItem('chyAdminRemember');
+    }
+
+    // Do not manually store the password. Keeping the value until navigation
+    // helps Safari/iOS Password AutoFill offer Keychain save/update.
     $('adminName').textContent=r.name||r.id;
     $('loginBox').hidden=true; $('app').hidden=false;
     if(window.CHYOneSignal) await window.CHYOneSignal.login(r.id);
@@ -82,7 +96,10 @@ async function login(){
 async function logout(){
   try{ if(token) await api('mobileApiLogout',{token}); }catch(e){}
   if(window.CHYOneSignal) try{ await window.CHYOneSignal.logout(); }catch(e){}
-  localStorage.removeItem('chyAdminToken'); token='';
+  localStorage.removeItem('chyAdminToken');
+  sessionStorage.removeItem('chyAdminToken');
+  token='';
+  // Saved ID is intentionally preserved when "아이디 저장" was enabled.
   location.reload();
 }
 function showTab(n){
@@ -207,9 +224,13 @@ async function savePermissions(){
 }
 
 window.addEventListener('load',async()=>{
-  $('id').value=localStorage.getItem('chyAdminId')||'';
+  const remembered = localStorage.getItem('chyAdminRemember')==='1';
+  $('rememberLogin').checked=remembered;
+  $('id').value=remembered ? (localStorage.getItem('chyAdminId')||'') : '';
+
   await initOneSignal();
   if('serviceWorker' in navigator) navigator.serviceWorker.register('./OneSignalSDKWorker.js').catch(()=>{});
+
   if(token){
     $('adminName').textContent=localStorage.getItem('chyAdminName')||localStorage.getItem('chyAdminId')||'관리자';
     $('loginBox').hidden=true;$('app').hidden=false;showTab('pending');
