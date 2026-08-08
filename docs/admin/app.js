@@ -32,8 +32,8 @@ async function initOneSignal(){
       try{
         await OneSignal.init({
           appId: CFG.oneSignalAppId,
-          serviceWorkerPath: "/CHYPluginReleases/admin/OneSignalSDKWorker.js",
-          serviceWorkerParam: { scope: "/CHYPluginReleases/admin/" },
+          serviceWorkerPath: "CHYPluginReleases/admin/push/onesignal/OneSignalSDKWorker.js",
+          serviceWorkerParam: { scope: "/CHYPluginReleases/admin/push/onesignal/" },
           notifyButton: { enable:false },
           welcomeNotification: { disable:true },
           autoResubscribe: true
@@ -48,7 +48,11 @@ async function initOneSignal(){
         }
 
         try{
-          OneSignal.User.PushSubscription.addEventListener('change', function(){
+          OneSignal.User.PushSubscription.addEventListener('change', function(event){
+            console.log('OneSignal PushSubscription change', event);
+            if(event && event.current && event.current.token){
+              console.log('OneSignal push token created');
+            }
             updatePushButton();
           });
         }catch(e){}
@@ -66,17 +70,37 @@ async function initOneSignal(){
 }
 
 async function showPushStatus(){
+  const lines=[];
+  lines.push('현재 URL: '+location.href);
+  lines.push('알림 권한: '+(Notification.permission||'-'));
+
   if(!window.CHYOneSignalReady || !window.CHYOneSignal){
-    alert('OneSignal 초기화 안 됨');
-    return;
+    lines.push('OneSignal 초기화: 실패/미완료');
+  }else{
+    const O=window.CHYOneSignal;
+    lines.push('OneSignal 초기화: 완료');
+    lines.push('OneSignal 구독: '+(O.User.PushSubscription.optedIn?'Subscribed':'Unsubscribed'));
+    lines.push('Subscription ID: '+(O.User.PushSubscription.id||'-'));
+    lines.push('Push Token: '+(O.User.PushSubscription.token?'생성됨':'없음'));
   }
-  const O=window.CHYOneSignal;
-  alert(
-    '알림 권한: '+(O.Notifications.permission?'허용':'미허용')+
-    '\nOneSignal 구독: '+(O.User.PushSubscription.optedIn?'Subscribed':'Unsubscribed')+
-    '\nSubscription ID: '+(O.User.PushSubscription.id||'-')+
-    '\nPush Token: '+(O.User.PushSubscription.token?'생성됨':'없음')
-  );
+
+  if('serviceWorker' in navigator){
+    try{
+      const regs=await navigator.serviceWorker.getRegistrations();
+      if(!regs.length) lines.push('Service Worker: 없음');
+      regs.forEach((r,i)=>{
+        lines.push('SW'+(i+1)+' scope: '+r.scope);
+        const u=(r.active||r.waiting||r.installing);
+        lines.push('SW'+(i+1)+' script: '+(u?u.scriptURL:'-'));
+      });
+    }catch(e){
+      lines.push('Service Worker 확인 실패: '+e.message);
+    }
+  }else{
+    lines.push('Service Worker: 미지원');
+  }
+
+  alert(lines.join('\n'));
 }
 
 async function enablePush(){
