@@ -1,4 +1,4 @@
-
+﻿
 const CFG = window.CHY_ADMIN_CONFIG;
 const CHY_ADMIN_LOCAL_VERSION = CFG.appVersion || "unknown";
 window.CHY_ADMIN_JS_READY = true;
@@ -386,8 +386,8 @@ async function loadPermissions(id){
       const d=document.createElement('label');d.className='perm';const num=String(parseInt(f.id.replace('FN',''),10));
       d.innerHTML=`<input type="checkbox" data-kind="function" data-fid="${esc(f.id)}" ${sel.has(f.id)?'checked':''}><div><div class="permName">${esc(num)}. ${esc(f.name)}</div><div class="permHotkey">${esc(f.id)} · ${esc(f.hotkey)}</div></div>`;pl.appendChild(d);
     });
-    const phead=document.createElement('div');phead.className='permSection pluginSection';phead.innerHTML='<b>플러그인 권한</b><div class="small">서버 카탈로그 기준 · 새 플러그인은 자동 추가됩니다.</div>';pl.appendChild(phead);
-    (r.plugins||[]).forEach(p=>{const d=document.createElement('label');d.className='perm';d.innerHTML=`<input type="checkbox" data-kind="plugin" data-pid="${esc(p.id)}" ${psel.has(p.id)?'checked':''}><div><div class="permName">${esc(p.name||p.id)}</div><div class="permHotkey">${esc(p.id)} · v${esc(p.version||'-')}</div></div>`;pl.appendChild(d);});$('permSave').hidden=false;
+    const phead=document.createElement('div');phead.className='permSection pluginSection';phead.innerHTML='<b>플러그인 권한</b><div class="small">플랫폼 프로그램 목록 기준 · 신규 프로그램은 기본 미허용입니다.</div>';pl.appendChild(phead);
+    (r.plugins||[]).forEach(p=>{const d=document.createElement('label');d.className='perm';d.innerHTML=`<input type="checkbox" data-kind="plugin" data-pid="${esc(p.id)}" ${psel.has(p.id)?'checked':''}><div><div class="permName">${esc(p.name||p.id)}</div><div class="permHotkey">${esc(p.id)} · v${esc(p.version||'-')} · ${p.defaultAllowed?'기존기능 승계':'기본 미허용'}</div></div>`;pl.appendChild(d);});$('permSave').hidden=false;
   }catch(e){msg(e.message,false);}finally{busy(false);}
 }
 async function savePermissions(){
