@@ -380,19 +380,22 @@ async function loadPermissions(id){
     const r=await api('mobileApiGetPermissions',{token,targetId:id});
     if(!r.ok)throw new Error(r.message||'권한조회 실패');
     $('permUserInfo').hidden=false;$('permUserInfo').innerHTML=`<div class="name">${esc(r.user.name||r.user.id)}</div><div class="meta">아이디: ${esc(r.user.id)} · 사번: ${esc(r.user.employeeNo)}<br>가입일: ${esc(r.user.createdAt||'-')}</div>`;
-    const sel=new Set(r.selectedIds||[]),pl=$('permList');pl.innerHTML='';
+    const sel=new Set(r.selectedIds||[]),psel=new Set(r.selectedPluginIds||[]),pl=$('permList');pl.innerHTML='';
+    const fhead=document.createElement('div');fhead.className='permSection';fhead.innerHTML='<b>기능 · 핫키 권한</b><div class="small">기존 기능 권한</div>';pl.appendChild(fhead);
     (r.functions||[]).forEach(f=>{
       const d=document.createElement('label');d.className='perm';const num=String(parseInt(f.id.replace('FN',''),10));
-      d.innerHTML=`<input type="checkbox" data-fid="${esc(f.id)}" ${sel.has(f.id)?'checked':''}><div><div class="permName">${esc(num)}. ${esc(f.name)}</div><div class="permHotkey">${esc(f.id)} · ${esc(f.hotkey)}</div></div>`;
-      pl.appendChild(d);
-    });$('permSave').hidden=false;
+      d.innerHTML=`<input type="checkbox" data-kind="function" data-fid="${esc(f.id)}" ${sel.has(f.id)?'checked':''}><div><div class="permName">${esc(num)}. ${esc(f.name)}</div><div class="permHotkey">${esc(f.id)} · ${esc(f.hotkey)}</div></div>`;pl.appendChild(d);
+    });
+    const phead=document.createElement('div');phead.className='permSection pluginSection';phead.innerHTML='<b>플러그인 권한</b><div class="small">서버 카탈로그 기준 · 새 플러그인은 자동 추가됩니다.</div>';pl.appendChild(phead);
+    (r.plugins||[]).forEach(p=>{const d=document.createElement('label');d.className='perm';d.innerHTML=`<input type="checkbox" data-kind="plugin" data-pid="${esc(p.id)}" ${psel.has(p.id)?'checked':''}><div><div class="permName">${esc(p.name||p.id)}</div><div class="permHotkey">${esc(p.id)} · v${esc(p.version||'-')}</div></div>`;pl.appendChild(d);});$('permSave').hidden=false;
   }catch(e){msg(e.message,false);}finally{busy(false);}
 }
 async function savePermissions(){
   if(!currentPermUser)return;
-  const ids=[...document.querySelectorAll('#permList input:checked')].map(x=>x.dataset.fid);
-  if(!confirm(`선택한 ${ids.length}개 기능만 허용할까요?\n체크하지 않은 기능은 차단됩니다.`))return;
-  const r=await api('mobileApiSavePermissions',{token,targetId:currentPermUser,selectedIds:ids.join(';')});
+  const ids=[...document.querySelectorAll('#permList input[data-kind="function"]:checked')].map(x=>x.dataset.fid);
+  const pluginIds=[...document.querySelectorAll('#permList input[data-kind="plugin"]:checked')].map(x=>x.dataset.pid);
+  if(!confirm(`기능 ${ids.length}개 / 플러그인 ${pluginIds.length}개 권한을 저장할까요?\n체크 해제한 항목은 차단됩니다.`))return;
+  const r=await api('mobileApiSavePermissions',{token,targetId:currentPermUser,selectedIds:ids.join(';'),selectedPluginIds:pluginIds.join(';')});
   msg(r.message||'권한을 저장했습니다.',!!r.ok);
 }
 
