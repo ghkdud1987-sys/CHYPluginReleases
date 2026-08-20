@@ -11,9 +11,23 @@ async function checkAdminVersionLight(){
     const remote = String(x.version||'');
     if(remote && remote !== CHY_ADMIN_LOCAL_VERSION){
       const u = new URL(location.href);
+      const alreadyRequested = u.searchParams.get('_v') === remote;
+      const guardKey = 'chyAdminReloadGuardVersion';
+      const alreadyReloaded = sessionStorage.getItem(guardKey) === remote;
+
+      // 같은 원격 버전으로 이미 한 번 이동했다면 더 이상 reload 하지 않는다.
+      // GitHub Pages/CDN 캐시가 잠깐 서로 다른 버전을 내줘도 화면 깜빡임 루프를 막는다.
+      if(alreadyRequested || alreadyReloaded){
+        console.warn('CHY admin version mismatch remains after one refresh; reload loop suppressed.', {local:CHY_ADMIN_LOCAL_VERSION, remote});
+        return;
+      }
+
+      sessionStorage.setItem(guardKey, remote);
       u.searchParams.set('_v', remote);
       u.searchParams.set('_t', Date.now());
       location.replace(u.toString());
+    }else if(remote === CHY_ADMIN_LOCAL_VERSION){
+      sessionStorage.removeItem('chyAdminReloadGuardVersion');
     }
   }catch(e){
     console.warn('CHY version check skipped', e);
