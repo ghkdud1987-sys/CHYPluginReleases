@@ -1,4 +1,4 @@
-﻿
+
 const CFG = window.CHY_ADMIN_CONFIG;
 const CHY_ADMIN_LOCAL_VERSION = CFG.appVersion || "unknown";
 window.CHY_ADMIN_JS_READY = true;
@@ -92,18 +92,23 @@ async function initOneSignal(){
         window.CHYOneSignal=OneSignal;
         window.CHYOneSignalReady=true;
 
-        const id=localStorage.getItem('chyAdminId');
+        const id=localStorage.getItem('chyAdminId') || sessionStorage.getItem('chyAdminSessionId') || '';
         if(token && id){
           await OneSignal.login(id);
         }
 
+        if(token && OneSignal.User.PushSubscription.id){
+          await syncPushSubscriptionToServer();
+        }
+
         try{
-          OneSignal.User.PushSubscription.addEventListener('change', function(event){
+          OneSignal.User.PushSubscription.addEventListener('change', async function(event){
             console.log('OneSignal PushSubscription change', event);
             if(event && event.current && event.current.token){
               console.log('OneSignal push token created');
             }
             updatePushButton();
+            await syncPushSubscriptionToServer();
           });
         }catch(e){}
 
@@ -149,8 +154,11 @@ async function showPushStatus(){
     const O=window.CHYOneSignal;
     lines.push('OneSignal 초기화: 완료');
     lines.push('OneSignal 구독: '+(O.User.PushSubscription.optedIn?'Subscribed':'Unsubscribed'));
-    lines.push('Subscription ID: '+(O.User.PushSubscription.id||'-'));
+    const currentSubId = O.User.PushSubscription.id || '';
+    const savedSubId = localStorage.getItem('chyAdminPushSubscriptionId') || '';
+    lines.push('Subscription ID: '+(currentSubId||'-'));
     lines.push('Push Token: '+(O.User.PushSubscription.token?'생성됨':'없음'));
+    lines.push('서버 Subscription 등록: '+(currentSubId && savedSubId===currentSubId ? '완료' : '미확인'));
   }
 
   if('serviceWorker' in navigator){
@@ -171,6 +179,34 @@ async function showPushStatus(){
 
   alert(lines.join('\n'));
 }
+
+async function syncPushSubscriptionToServer(){
+  if(!token || !window.CHYOneSignalReady || !window.CHYOneSignal) return false;
+
+  const subId = window.CHYOneSignal.User.PushSubscription.id || '';
+  if(!subId) return false;
+
+  try{
+    const r = await api('mobileApiRegisterPushSubscription',{
+      token,
+      subscriptionId: subId
+    });
+
+    if(!r || !r.ok){
+      console.warn('Push subscription server registration failed', r);
+      return false;
+    }
+
+    localStorage.setItem('chyAdminPushSubscriptionId', subId);
+    localStorage.setItem('chyAdminPushSubscriptionRegisteredAt', String(Date.now()));
+    console.log('Push subscription registered on CHY server', subId);
+    return true;
+  }catch(e){
+    console.warn('Push subscription server registration exception', e);
+    return false;
+  }
+}
+
 
 async function enablePush(){
   const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
@@ -224,7 +260,10 @@ async function enablePush(){
     updatePushButton();
 
     if(subscribed && subId){
-      msg('푸시 알림 구독이 완료되었습니다.');
+      const serverRegistered = await syncPushSubscriptionToServer();
+      msg(serverRegistered
+        ? '푸시 알림 구독 및 서버 등록이 완료되었습니다.'
+        : '푸시 구독은 완료됐지만 서버 등록에 실패했습니다.', serverRegistered);
     }else{
       alert('iPhone 알림 권한은 허용됐지만 OneSignal 푸시 구독이 아직 완료되지 않았습니다. 앱을 완전히 종료 후 다시 열어 알림 버튼을 한 번 더 눌러주세요.');
     }
@@ -259,6 +298,7 @@ async function login(){
 
     token=r.token;
     localStorage.setItem('chyAdminName',r.name||r.id);
+    sessionStorage.setItem('chyAdminSessionId',r.id);
 
     if(remember){
       localStorage.setItem('chyAdminToken',token);
@@ -276,7 +316,10 @@ async function login(){
     // helps Safari/iOS Password AutoFill offer Keychain save/update.
     $('adminName').textContent=r.name||r.id;
     $('loginBox').hidden=true; $('app').hidden=false;
-    if(window.CHYOneSignal) await window.CHYOneSignal.login(r.id);
+    if(window.CHYOneSignal){
+      await window.CHYOneSignal.login(r.id);
+      await syncPushSubscriptionToServer();
+    }
     showTab('pending');
   }catch(e){ alert(e.message); } finally{ busy(false); }
 }
@@ -285,6 +328,7 @@ async function logout(){
   if(window.CHYOneSignal) try{ await window.CHYOneSignal.logout(); }catch(e){}
   localStorage.removeItem('chyAdminToken');
   sessionStorage.removeItem('chyAdminToken');
+  sessionStorage.removeItem('chyAdminSessionId');
   token='';
   // Saved ID is intentionally preserved when "아이디 저장" was enabled.
   location.reload();
