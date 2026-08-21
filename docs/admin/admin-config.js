@@ -1,6 +1,6 @@
-﻿window.CHY_ADMIN_CONFIG = {
+window.CHY_ADMIN_CONFIG = {
   appsScriptUrl: "https://script.google.com/macros/s/AKfycbwWCfvg0VraeCjBiUf9o5pSTtbpbxSlqPAJ8qu9VTxfUCE8ZoWorcMZShYZfsZMUND7/exec",
   oneSignalAppId: "63c3f73e-d783-4caf-a4a3-c5bae3957e14",
   oneSignalSafariWebId: "web.onesignal.auto.185a3882-a3fa-4e4c-9216-d752294e35fc",
-  appVersion: "0.45.0.16-dev"
+  appVersion: "0.45.0.17-dev"
 };
