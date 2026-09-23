@@ -39,6 +39,8 @@ let currentTab = 'pending';
 let users = [];
 let currentPermUser = '';
 let accessMode = 'admin';
+let usersLoadedAt = 0;
+const USERS_CACHE_MS = 60000;
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -338,9 +340,9 @@ function showTab(n){
     $('tab'+x[0].toUpperCase()+x.slice(1)).classList.toggle('on',x===n);
   });
   if(n==='pending') loadPendingAll();
-  if(n==='users') loadUsers();
+  if(n==='users') loadUsers(false, false);
   if(n==='online') loadOnline();
-  if(n==='perm' && !users.length) loadUsers(true);
+  if(n==='perm' && !users.length) loadUsers(true, false);
 }
 async function loadPendingAll(){ await Promise.all([loadPending(),loadResets()]); }
 async function loadPending(){
@@ -390,12 +392,18 @@ async function loadResets(){
 async function resetAction(action,requestId){
   const r=await api(action,{token,requestId});msg(r.message||'처리했습니다.',!!r.ok);if(r.ok)loadResets();
 }
-async function loadUsers(silent=false){
+async function loadUsers(silent=false, force=false){
+  const fresh = users.length && usersLoadedAt && (Date.now()-usersLoadedAt < USERS_CACHE_MS);
+  if(!force && fresh){
+    renderUsers(); fillPermUsers();
+    return;
+  }
   if(!silent)busy(true);
   try{
     const r=await api('mobileApiListUsers',{token});
     if(!r.ok){if(r.auth===false)return authExpired();throw new Error(r.message||'회원조회 실패');}
-    users=r.items||[];$('userCount').textContent=`전체 ${users.length}명 · 현재 접속 ${r.onlineCount||0}명`;
+    users=r.items||[]; usersLoadedAt=Date.now();
+    $('userCount').textContent=`전체 ${users.length}명 · 현재 접속 ${r.onlineCount||0}명`;
     renderUsers();fillPermUsers();
   }catch(e){msg(e.message,false);}finally{busy(false);}
 }
