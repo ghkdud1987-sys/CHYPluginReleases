@@ -438,10 +438,14 @@ function fillPermUsers(){
   s.innerHTML='<option value="">사용자 선택</option>'+users.map(x=>`<option value="${esc(x.id)}">${esc((x.name||x.id)+' | '+x.id+' | '+x.employeeNo)}</option>`).join('');
   if(old)s.value=old;
 }
+const permissionCache=new Map();
 async function loadPermissions(id){
   if(!id)return;currentPermUser=id;busy(true);
   try{
-    const r=await api('mobileApiGetPermissions',{token,targetId:id});
+    let r=null;
+    const pc=permissionCache.get(id);
+    if(pc && (Date.now()-pc.at)<60000) r=pc.data;
+    else { r=await api('mobileApiGetPermissions',{token,targetId:id}); if(r&&r.ok) permissionCache.set(id,{at:Date.now(),data:r}); }
     if(!r.ok)throw new Error(r.message||'권한조회 실패');
     $('permUserInfo').hidden=false;$('permUserInfo').innerHTML=`<div class="name">${esc(r.user.name||r.user.id)}</div><div class="meta">아이디: ${esc(r.user.id)} · 사번: ${esc(r.user.employeeNo)}<br>가입일: ${esc(r.user.createdAt||'-')}</div>`;
     const sel=new Set(r.selectedIds||[]),psel=new Set(r.selectedPluginIds||[]),pl=$('permList');pl.innerHTML='';
@@ -460,6 +464,7 @@ async function savePermissions(){
   const pluginIds=[...document.querySelectorAll('#permList input[data-kind="plugin"]:checked')].map(x=>x.dataset.pid);
   if(!confirm(`기능 ${ids.length}개 / 플러그인 ${pluginIds.length}개 권한을 저장할까요?\n체크 해제한 항목은 차단됩니다.`))return;
   const r=await api('mobileApiSavePermissions',{token,targetId:currentPermUser,selectedIds:ids.join(';'),selectedPluginIds:pluginIds.join(';')});
+  if(r&&r.ok) permissionCache.delete(currentPermUser);
   msg(r.message||'권한을 저장했습니다.',!!r.ok);
 }
 
