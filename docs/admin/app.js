@@ -1,4 +1,4 @@
-
+﻿
 const CFG = window.CHY_ADMIN_CONFIG;
 const CHY_ADMIN_LOCAL_VERSION = CFG.appVersion || "unknown";
 window.CHY_ADMIN_JS_READY = true;
@@ -38,6 +38,7 @@ let token = localStorage.getItem('chyAdminToken') || sessionStorage.getItem('chy
 let currentTab = 'pending';
 let users = [];
 let currentPermUser = '';
+let accessMode = 'admin';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -316,11 +317,8 @@ async function login(){
     // helps Safari/iOS Password AutoFill offer Keychain save/update.
     $('adminName').textContent=r.name||r.id;
     $('loginBox').hidden=true; $('app').hidden=false;
-    if(window.CHYOneSignal){
-      await window.CHYOneSignal.login(r.id);
-      await syncPushSubscriptionToServer();
-    }
-    showTab('pending');
+    applyAccessMode(r.accessMode||'admin');
+    setTimeout(async()=>{ try{ if(!window.CHYOneSignalReady) await initOneSignal(); if(window.CHYOneSignal){ await window.CHYOneSignal.login(r.id); await syncPushSubscriptionToServer(); } await loadBedAlertPreference(); }catch(e){ console.warn('background push init',e); } },0);
   }catch(e){ alert(e.message); } finally{ busy(false); }
 }
 async function logout(){
@@ -463,14 +461,32 @@ window.addEventListener('load',async()=>{
   $('rememberLogin').checked=remembered;
   $('id').value=remembered ? (localStorage.getItem('chyAdminId')||'') : '';
 
-  await initOneSignal();
+  initOneSignal().catch(e=>console.warn('OneSignal deferred init',e));
 
   if(token){
     $('adminName').textContent=localStorage.getItem('chyAdminName')||localStorage.getItem('chyAdminId')||'관리자';
-    $('loginBox').hidden=true;$('app').hidden=false;showTab('pending');
+    $('loginBox').hidden=true;$('app').hidden=false;
+    setTimeout(()=>loadBedAlertPreference().catch(()=>{}),0);
   }
 });
 setInterval(()=>{if(token&&currentTab==='online')loadOnline();},30000);
 
 setInterval(()=>{ if(!document.hidden) checkAdminVersionLight(); },300000);
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden) checkAdminVersionLight(); });
+
+
+function applyAccessMode(mode){
+  accessMode = mode || 'admin';
+  const adminOnly = accessMode === 'admin';
+  const tabs = document.querySelector('.tabs');
+  if(tabs) tabs.hidden = !adminOnly;
+  ['pendingPane','usersPane','onlinePane','permPane'].forEach(id=>{ const el=$(id); if(el) el.hidden=true; });
+  const role = document.querySelector('.toolbar .small');
+  if(role) role.textContent = adminOnly ? '관리자' : '병실배정 알림 전용';
+  if(adminOnly) showTab('pending');
+}
+
+// CHY558 병실배정 권한별 Push ON/OFF
+async function loadBedAlertPreference(){ if(!token)return; try{ const r=await api('mobileApiGetBedAlertPreference',{token}); if(!r.ok){if(r.auth===false)return authExpired();return;} const el=$('bedAlertToggle'); if(r.accessMode)applyAccessMode(r.accessMode);if(el){el.checked=!!r.enabled;updateBedAlertLabel();} }catch(e){console.warn(e);} }
+function updateBedAlertLabel(){const el=$('bedAlertToggle'),lab=$('bedAlertLabel');if(lab)lab.textContent=(el&&el.checked)?'병실배정 알림 ON':'병실배정 알림 OFF';}
+async function saveBedAlertPreference(){if(!token)return;const el=$('bedAlertToggle');if(!el)return;updateBedAlertLabel();try{const r=await api('mobileApiSetBedAlertPreference',{token,enabled:el.checked?'1':'0'});if(!r.ok){if(r.auth===false)return authExpired();throw new Error(r.message||'저장 실패');}msg(el.checked?'병실배정 알림을 켰습니다.':'병실배정 알림을 껐습니다.',true);}catch(e){el.checked=!el.checked;updateBedAlertLabel();msg(e.message||String(e),false);}}
