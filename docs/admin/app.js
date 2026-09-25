@@ -479,7 +479,7 @@ window.addEventListener('load',async()=>{
   if(token){
     $('adminName').textContent=localStorage.getItem('chyAdminName')||localStorage.getItem('chyAdminId')||'관리자';
     $('loginBox').hidden=true;$('app').hidden=false;
-    setTimeout(()=>loadBedAlertPreference().catch(()=>{}),0);
+    setTimeout(()=>{loadBedAlertPreference().catch(()=>{});loadBedAlertHistory().catch(()=>{});},0);
   }
 });
 setInterval(()=>{if(token&&currentTab==='online')loadOnline();},30000);
@@ -497,6 +497,21 @@ function applyAccessMode(mode){
   const role = document.querySelector('.toolbar .small');
   if(role) role.textContent = adminOnly ? '관리자' : '병실배정 알림 전용';
   if(adminOnly) showTab('pending');
+}
+
+// CHY583 최근 24시간 병실배정 알림내역
+function escBedAlert(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function fmtBedAlertTime(ms){const d=new Date(Number(ms)||0);if(!d.getTime())return '';return new Intl.DateTimeFormat('ko-KR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(d);}
+async function loadBedAlertHistory(){
+ if(!token)return;
+ const box=$('bedAlertHistoryList'); if(!box)return;
+ try{
+  const r=await api('mobileApiGetBedAlertHistory',{token});
+  if(!r.ok){if(r.auth===false)return authExpired();throw new Error(r.message||'알림내역 조회 실패');}
+  const items=Array.isArray(r.items)?r.items:[];
+  if(!items.length){box.innerHTML='<div class="empty">최근 24시간 병실배정 알림이 없습니다.</div>';return;}
+  box.innerHTML=items.map(x=>'<div style="padding:9px 0;border-bottom:1px solid #e7ebf2"><b>'+escBedAlert(fmtBedAlertTime(x.ts))+'</b><div style="margin-top:3px;font-size:15px;color:#172033">'+escBedAlert(x.text)+'</div></div>').join('');
+ }catch(e){box.innerHTML='<div class="empty">'+escBedAlert(e.message||String(e))+'</div>';}
 }
 
 // CHY558 병실배정 권한별 Push ON/OFF
