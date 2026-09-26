@@ -506,12 +506,23 @@ async function loadBedAlertHistory(){
  if(!token)return;
  const box=$('bedAlertHistoryList'); if(!box)return;
  try{
+  const saved=JSON.parse(localStorage.getItem('chyBedAlertHistory24')||'[]');
+  if(Array.isArray(saved)&&saved.length) renderBedAlertHistory(saved,box);
+ }catch(e){}
+ try{
   const r=await api('mobileApiGetBedAlertHistory',{token});
   if(!r.ok){if(r.auth===false)return authExpired();throw new Error(r.message||'알림내역 조회 실패');}
   const items=Array.isArray(r.items)?r.items:[];
-  if(!items.length){box.innerHTML='<div class="empty">최근 24시간 병실배정 알림이 없습니다.</div>';return;}
-  box.innerHTML=items.map(x=>'<div style="padding:9px 0;border-bottom:1px solid #e7ebf2"><b>'+escBedAlert(fmtBedAlertTime(x.ts))+'</b><div style="margin-top:3px;font-size:15px;color:#172033">'+escBedAlert(x.text)+'</div></div>').join('');
- }catch(e){box.innerHTML='<div class="empty">'+escBedAlert(e.message||String(e))+'</div>';}
+  try{localStorage.setItem('chyBedAlertHistory24',JSON.stringify(items));}catch(e){}
+  renderBedAlertHistory(items,box);
+ }catch(e){
+  if(!box.innerHTML||box.innerHTML.indexOf('알림내역을 불러오는 중')>=0)
+   box.innerHTML='<div class="empty">최근 알림내역을 불러오지 못했습니다. 새로고침으로 다시 확인할 수 있습니다.</div>';
+ }
+}
+function renderBedAlertHistory(items,box){
+ if(!items.length){box.innerHTML='<div class="empty">최근 24시간 병실배정 알림이 없습니다.</div>';return;}
+ box.innerHTML=items.map(x=>'<div style="padding:9px 0;border-bottom:1px solid #e7ebf2"><b>'+escBedAlert(fmtBedAlertTime(x.ts))+'</b><div style="margin-top:3px;font-size:15px;color:#172033">'+escBedAlert(x.text)+'</div></div>').join('');
 }
 
 // CHY558 병실배정 권한별 Push ON/OFF
