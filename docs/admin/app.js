@@ -306,6 +306,7 @@ async function login(){
     if(remember){
       localStorage.setItem('chyAdminToken',token);
       localStorage.setItem('chyAdminId',r.id);
+      localStorage.setItem('chyAdminSessionUserId',r.id);
       localStorage.setItem('chyAdminRemember','1');
       sessionStorage.removeItem('chyAdminToken');
     }else{
@@ -477,9 +478,20 @@ window.addEventListener('load',async()=>{
   initOneSignal().catch(e=>console.warn('OneSignal deferred init',e));
 
   if(token){
-    $('adminName').textContent=localStorage.getItem('chyAdminName')||localStorage.getItem('chyAdminId')||'관리자';
+    $('adminName').textContent=localStorage.getItem('chyAdminName')||localStorage.getItem('chyAdminId')||'사용자';
     $('loginBox').hidden=true;$('app').hidden=false;
-    setTimeout(()=>{loadBedAlertPreference().catch(()=>{});loadBedAlertHistory().catch(()=>{});},0);
+    setTimeout(async()=>{
+      try{
+        await loadBedAlertPreference();
+        await loadBedAlertHistory();
+        if(!window.CHYOneSignalReady) await initOneSignal();
+        if(window.CHYOneSignal){
+          const savedId=localStorage.getItem('chyAdminId')||sessionStorage.getItem('chyAdminSessionId')||'';
+          if(savedId) await window.CHYOneSignal.login(savedId);
+          await syncPushSubscriptionToServer();
+        }
+      }catch(e){ console.warn('remembered session restore',e); }
+    },0);
   }
 });
 setInterval(()=>{if(token&&currentTab==='online')loadOnline();},30000);
