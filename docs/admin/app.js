@@ -482,6 +482,10 @@ window.addEventListener('load',async()=>{
     $('loginBox').hidden=true;$('app').hidden=false;
     setTimeout(async()=>{
       try{
+        const sc=await api('mobileApiSessionCheck',{token});
+        if(!sc.ok){ if(sc.auth===false) return authExpired(); throw new Error(sc.message||'세션 확인 실패'); }
+        applyAccessMode(sc.accessMode||'bedAlert');
+        if(sc.name) $('adminName').textContent=sc.name;
         await loadBedAlertPreference();
         await loadBedAlertHistory();
         if(!window.CHYOneSignalReady) await initOneSignal();
