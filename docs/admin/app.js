@@ -45,10 +45,11 @@ const USERS_CACHE_MS = 60000;
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-async function api(action, params={}) {
+async function api(action, params={}, options={}) {
   const body = new URLSearchParams({action, ...params});
+  const timeoutMs = options.timeoutMs || 45000;
   const ctrl = new AbortController();
-  const timer = setTimeout(()=>ctrl.abort(),15000);
+  const timer = setTimeout(()=>ctrl.abort(),timeoutMs);
   try{
     const res = await fetch(CFG.appsScriptUrl, {
       method:'POST',
@@ -61,11 +62,28 @@ async function api(action, params={}) {
     try { return JSON.parse(text); }
     catch(e) { throw new Error('서버 응답을 읽을 수 없습니다: ' + text.slice(0,160)); }
   }catch(e){
-    if(e && e.name==='AbortError') throw new Error('서버 응답이 지연되어 요청을 중단했습니다.');
+    if(e && e.name==='AbortError') {
+      const err=new Error('서버 응답이 지연되고 있습니다.');
+      err.code='CHY_TIMEOUT';
+      throw err;
+    }
     throw e;
   }finally{
     clearTimeout(timer);
   }
+}
+
+async function apiReliable(action, params={}, attempts=2) {
+  let lastErr=null;
+  for(let i=0;i<attempts;i++){
+    try{
+      return await api(action,params,{timeoutMs:45000});
+    }catch(e){
+      lastErr=e;
+      if(i+1<attempts) await new Promise(r=>setTimeout(r,1200));
+    }
+  }
+  throw lastErr || new Error('서버 통신 실패');
 }
 function busy(v){ document.body.classList.toggle('busy', !!v); }
 function msg(text, ok=true){ const m=$('msg'); m.textContent=text; m.className='msg '+(ok?'ok':'err'); setTimeout(()=>m.className='msg',3000); }
@@ -101,7 +119,9 @@ async function initOneSignal(){
         }
 
         if(token && OneSignal.User.PushSubscription.id){
-          await syncPushSubscriptionToServer();
+          // OneSignal 초기화를 Apps Script 응답과 묶지 않는다.
+          // 서버가 느려도 iOS 권한/구독 초기화는 즉시 완료되도록 백그라운드 동기화.
+          syncPushSubscriptionToServer().catch(e=>console.warn('background push sync',e));
         }
 
         try{
@@ -190,10 +210,10 @@ async function syncPushSubscriptionToServer(){
   if(!subId) return false;
 
   try{
-    const r = await api('mobileApiRegisterPushSubscription',{
+    const r = await apiReliable('mobileApiRegisterPushSubscription',{
       token,
       subscriptionId: subId
-    });
+    },2);
 
     if(!r || !r.ok){
       console.warn('Push subscription server registration failed', r);
@@ -567,20 +587,32 @@ async function saveBedAlertPreference(){
    if(uid) await window.CHYOneSignal.login(uid);
    await new Promise(r=>setTimeout(r,500));
    await syncPushSubscriptionToServer();
-   const r=await api('mobileApiSetBedAlertPreference',{token,enabled:'1'});
+   el.checked=true; localStorage.setItem('chyBedAlertEnabled','1'); updateBedAlertLabel();
+   msg('알림 ON · 서버 동기화 중...',true);
+   const r=await apiReliable('mobileApiSetBedAlertPreference',{token,enabled:'1'},2);
    if(!r.ok){if(r.auth===false)return authExpired();throw new Error(r.message||'알림 ON 저장 실패');}
    el.checked=true; localStorage.setItem('chyBedAlertEnabled','1'); updateBedAlertLabel();
-   msg('병실배정 알림을 켰습니다.',true); return;
+   msg('병실배정 알림 ON · 서버 동기화 완료',true); return;
   }
-  const r=await api('mobileApiSetBedAlertPreference',{token,enabled:'0'});
+  const r=await apiReliable('mobileApiSetBedAlertPreference',{token,enabled:'0'},2);
   if(!r.ok){if(r.auth===false)return authExpired();throw new Error(r.message||'알림 OFF 저장 실패');}
   el.checked=false; localStorage.setItem('chyBedAlertEnabled','0'); updateBedAlertLabel();
   msg('병실배정 알림을 껐습니다.',true);
  }catch(e){
   console.warn('saveBedAlertPreference',e);
-  const cached=localStorage.getItem('chyBedAlertEnabled');
-  el.checked=(cached==='1'); updateBedAlertLabel();
-  msg(e.message||String(e),false);
+  if(wanted){
+    el.checked=true;
+    localStorage.setItem('chyBedAlertEnabled','1');
+    updateBedAlertLabel();
+    msg('알림 ON 유지 · 서버가 느려 동기화를 다시 시도합니다.',false);
+    setTimeout(()=>apiReliable('mobileApiSetBedAlertPreference',{token,enabled:'1'},2)
+      .then(r=>{if(r&&r.ok)msg('병실배정 알림 서버 동기화 완료',true);})
+      .catch(err=>console.warn('delayed bed alert sync',err)),5000);
+  }else{
+    const cached=localStorage.getItem('chyBedAlertEnabled');
+    el.checked=(cached==='1'); updateBedAlertLabel();
+    msg(e.message||String(e),false);
+  }
  }finally{el.dataset.busy='0';}
 }
 
