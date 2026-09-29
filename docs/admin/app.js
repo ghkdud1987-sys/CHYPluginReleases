@@ -1,4 +1,5 @@
-﻿
+﻿const CHY_BUILD='0.45.0.20-dev';
+
 const CFG = window.CHY_ADMIN_CONFIG;
 const CHY_ADMIN_LOCAL_VERSION = CFG.appVersion || "unknown";
 window.CHY_ADMIN_JS_READY = true;
