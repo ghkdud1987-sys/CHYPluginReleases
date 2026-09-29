@@ -544,4 +544,44 @@ function renderBedAlertHistory(items,box){
 // CHY558 병실배정 권한별 Push ON/OFF
 async function loadBedAlertPreference(){ if(!token)return; const el=$('bedAlertToggle'); const cached=localStorage.getItem('chyBedAlertEnabled'); if(el&&cached!==null){el.checked=(cached==='1');updateBedAlertLabel();} try{ const r=await api('mobileApiGetBedAlertPreference',{token}); if(!r.ok){if(r.auth===false)return authExpired();return;} if(r.accessMode)applyAccessMode(r.accessMode); if(el){el.checked=!!r.enabled;localStorage.setItem('chyBedAlertEnabled',r.enabled?'1':'0');updateBedAlertLabel();} }catch(e){console.warn(e);} }
 function updateBedAlertLabel(){const el=$('bedAlertToggle'),lab=$('bedAlertLabel');if(lab)lab.textContent=(el&&el.checked)?'병실배정 알림 ON':'병실배정 알림 OFF';}
-async function saveBedAlertPreference(){if(!token)return;const el=$('bedAlertToggle');if(!el)return;const wanted=el.checked;if(wanted){try{if(!window.CHYOneSignalReady)await initOneSignal();if(!window.CHYOneSignal)throw new Error('알림 모듈을 불러오지 못했습니다.');let perm=Notification.permission;if(perm!=='granted'){const granted=await window.CHYOneSignal.Notifications.requestPermission();perm=Notification.permission;if(!granted&&perm!=='granted'){el.checked=false;localStorage.setItem('chyBedAlertEnabled','0');updateBedAlertLabel();if(perm==='denied')msg('iPhone에서 알림이 차단되어 있습니다. 설정 → 알림 → CHY Platform 관리자에서 알림을 허용해주세요.',false);else msg('알림 권한을 허용해야 병실배정 Push를 받을 수 있습니다.',false);return;}}const savedId=localStorage.getItem('chyAdminId')||sessionStorage.getItem('chyAdminSessionId')||'';if(savedId)await window.CHYOneSignal.login(savedId);await syncPushSubscriptionToServer();}catch(e){el.checked=false;updateBedAlertLabel();msg(e.message||String(e),false);return;}}localStorage.setItem('chyBedAlertEnabled',wanted?'1':'0');updateBedAlertLabel();try{const r=await api('mobileApiSetBedAlertPreference',{token,enabled:wanted?'1':'0'});if(!r.ok){if(r.auth===false)return authExpired();throw new Error(r.message||'저장 실패');}el.checked=!!r.enabled;localStorage.setItem('chyBedAlertEnabled',r.enabled?'1':'0');updateBedAlertLabel();msg(el.checked?'병실배정 알림을 켰습니다.':'병실배정 알림을 껐습니다.',true);}catch(e){el.checked=wanted;updateBedAlertLabel();msg(e.message||String(e),false);}}
+async function saveBedAlertPreference(){
+ if(!token)return;
+ const el=$('bedAlertToggle'); if(!el||el.dataset.busy==='1')return;
+ const wanted=!!el.checked; el.dataset.busy='1';
+ try{
+  if(wanted){
+   if(!window.CHYOneSignalReady) await initOneSignal();
+   if(!window.CHYOneSignal) throw new Error('Push 모듈 초기화 실패');
+   let perm=window.Notification?Notification.permission:'default';
+   if(perm!=='granted'){
+    let granted=false;
+    try{granted=await window.CHYOneSignal.Notifications.requestPermission();}catch(e){console.warn(e);}
+    perm=window.Notification?Notification.permission:'default';
+    if(perm!=='granted'&&!granted){
+     el.checked=false; updateBedAlertLabel();
+     msg(perm==='denied'?'iPhone 설정 → 알림 → CHY Platform 관리자에서 알림을 허용해주세요.':'알림 허용 팝업에서 허용을 눌러주세요. 홈 화면 CHY 앱에서 실행해야 합니다.',false);
+     return;
+    }
+   }
+   const uid=localStorage.getItem('chyAdminId')||sessionStorage.getItem('chyAdminSessionId')||'';
+   if(uid) await window.CHYOneSignal.login(uid);
+   await new Promise(r=>setTimeout(r,500));
+   await syncPushSubscriptionToServer();
+   const r=await api('mobileApiSetBedAlertPreference',{token,enabled:'1'});
+   if(!r.ok){if(r.auth===false)return authExpired();throw new Error(r.message||'알림 ON 저장 실패');}
+   el.checked=true; localStorage.setItem('chyBedAlertEnabled','1'); updateBedAlertLabel();
+   msg('병실배정 알림을 켰습니다.',true); return;
+  }
+  const r=await api('mobileApiSetBedAlertPreference',{token,enabled:'0'});
+  if(!r.ok){if(r.auth===false)return authExpired();throw new Error(r.message||'알림 OFF 저장 실패');}
+  el.checked=false; localStorage.setItem('chyBedAlertEnabled','0'); updateBedAlertLabel();
+  msg('병실배정 알림을 껐습니다.',true);
+ }catch(e){
+  console.warn('saveBedAlertPreference',e);
+  const cached=localStorage.getItem('chyBedAlertEnabled');
+  el.checked=(cached==='1'); updateBedAlertLabel();
+  msg(e.message||String(e),false);
+ }finally{el.dataset.busy='0';}
+}
+
+;(()=>{const e=$('bedAlertToggle');if(e)e.onchange=saveBedAlertPreference;})();
