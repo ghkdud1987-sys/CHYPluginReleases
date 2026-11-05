@@ -232,6 +232,23 @@ async function syncPushSubscriptionToServer(){
 }
 
 
+// CHY780: foreground/resume subscription reconciliation; no permission prompts.
+let chyBedPushResyncBusy=false;
+async function chyBedPushResyncOnResume(){
+ if(chyBedPushResyncBusy || !token || localStorage.getItem('chyBedAlertEnabled')!=='1') return;
+ chyBedPushResyncBusy=true;
+ try {
+   if(!window.CHYOneSignalReady) await initOneSignal();
+   const os=window.CHYOneSignal;
+   if(!os || !os.Notifications.permission || !os.User.PushSubscription.optedIn || !os.User.PushSubscription.id){
+     console.warn('CHY bed push: no active subscribed device'); return;
+   }
+   await syncPushSubscriptionToServer();
+ } catch(e){console.warn('CHY bed push resync failed',e);}
+ finally {chyBedPushResyncBusy=false;}
+}
+document.addEventListener('visibilitychange',function(){if(!document.hidden)chyBedPushResyncOnResume();});
+window.addEventListener('pageshow',function(){chyBedPushResyncOnResume();});
 async function enablePush(){
   const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
   if(!standalone){
@@ -587,7 +604,8 @@ async function saveBedAlertPreference(){
    const uid=localStorage.getItem('chyAdminId')||sessionStorage.getItem('chyAdminSessionId')||'';
    if(uid) await window.CHYOneSignal.login(uid);
    await new Promise(r=>setTimeout(r,500));
-   await syncPushSubscriptionToServer();
+   const subscriptionSynced = await syncPushSubscriptionToServer();
+   if(!subscriptionSynced) throw new Error('Push 구독 서버 등록 실패: 알림 ON 설정만으로는 수신되지 않습니다.');
    el.checked=true; localStorage.setItem('chyBedAlertEnabled','1'); updateBedAlertLabel();
    msg('알림 ON · 서버 동기화 중...',true);
    const r=await apiReliable('mobileApiSetBedAlertPreference',{token,enabled:'1'},2);
